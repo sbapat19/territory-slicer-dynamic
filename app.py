@@ -15,54 +15,60 @@ st.set_page_config(
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
-    .stApp { font-family: 'DM Sans', sans-serif; background-color: #ffffff !important; color: #1a1d23 !important; }
+    /* Force light mode everywhere */
+    .stApp {
+        font-family: 'DM Sans', sans-serif;
+        background-color: #ffffff !important;
+        color: #1a1d23 !important;
+    }
 
-    /* Header - light */
+    /* Kill the dark top bar */
+    header[data-testid="stHeader"] {
+        background-color: #ffffff !important;
+        border-bottom: 1px solid #e2e4e9;
+    }
+
+    /* Main content padding */
+    .block-container {
+        padding-top: 2rem !important;
+        padding-bottom: 2rem !important;
+    }
+
+    /* Header */
     .main-header {
         background: #f8f9fb;
-        padding: 24px 32px;
-        border-radius: 12px;
-        margin-bottom: 24px;
+        padding: 20px 28px;
+        border-radius: 10px;
+        margin-bottom: 20px;
         border: 1px solid #e2e4e9;
     }
     .main-header h1 {
-        font-size: 24px; font-weight: 700; margin: 0; color: #1a1d23;
+        font-size: 22px; font-weight: 700; margin: 0; color: #1a1d23;
         letter-spacing: -0.3px;
     }
     .main-header p { font-size: 13px; color: #6b7280; margin: 4px 0 0; }
 
-    /* Metric cards */
-    .metric-card {
-        background: #ffffff;
-        border-radius: 10px;
-        padding: 16px 20px;
-        box-shadow: 0 1px 4px rgba(0,0,0,0.06);
-        border-left: 4px solid #ccc;
-        margin-bottom: 12px;
-    }
-    .metric-card .label {
-        font-size: 11px; font-weight: 600; color: #8a8f98;
-        text-transform: uppercase; letter-spacing: 0.8px;
-    }
-    .metric-card .value {
-        font-size: 26px; font-weight: 700; color: #1a1d23; margin-top: 4px;
-    }
-    .metric-card .sub {
-        font-size: 12px; color: #8a8f98; margin-top: 2px;
-    }
-    .ent-border { border-left-color: #1a5276; }
-    .mm-border { border-left-color: #7d5a38; }
-
-    /* Section headers - light */
+    /* Section headers */
     .section-header {
         font-size: 17px; font-weight: 700; color: #1a1d23;
-        margin: 36px 0 6px; padding-bottom: 8px;
+        margin: 28px 0 6px; padding-bottom: 8px;
         border-bottom: 2px solid #e2e4e9;
     }
     .section-desc {
-        font-size: 13px; color: #6b7280; margin: 0 0 18px;
+        font-size: 13px; color: #6b7280; margin: 0 0 16px;
         line-height: 1.6;
     }
+
+    /* Segment overview inline metrics */
+    .overview-row {
+        display: flex; gap: 32px; flex-wrap: wrap;
+        margin-bottom: 8px; padding: 4px 0;
+    }
+    .overview-item {
+        font-size: 14px; color: #1a1d23;
+    }
+    .overview-item .ov-label { color: #6b7280; font-size: 12px; }
+    .overview-item .ov-value { font-weight: 700; font-size: 20px; }
 
     /* CV badge */
     .cv-badge {
@@ -73,16 +79,25 @@ st.markdown("""
     .cv-ok { background: #fef9e7; color: #b7791f; }
     .cv-bad { background: #fdedec; color: #c0392b; }
 
-    /* Sidebar - light */
+    /* Sidebar */
     section[data-testid="stSidebar"] {
-        background: #f8f9fb;
+        background: #f8f9fb !important;
+        padding-top: 1.5rem;
+    }
+    section[data-testid="stSidebar"] > div {
+        padding: 0 1.2rem;
     }
     section[data-testid="stSidebar"] .stMarkdown p,
     section[data-testid="stSidebar"] .stMarkdown li,
     section[data-testid="stSidebar"] .stMarkdown h1,
     section[data-testid="stSidebar"] .stMarkdown h2,
     section[data-testid="stSidebar"] .stMarkdown h3 {
-        color: #1a1d23;
+        color: #1a1d23 !important;
+    }
+
+    /* Force all Plotly chart containers to white */
+    .stPlotlyChart, .js-plotly-plot, .plot-container {
+        background-color: #ffffff !important;
     }
 
     /* Methodology boxes */
@@ -169,9 +184,11 @@ def cv_badge_html(cv_val, label="Workload Variation"):
 
 def std_layout(title_text, height=340):
     return dict(
-        title=dict(text=title_text, font=dict(size=14)),
+        title=dict(text=title_text, font=dict(size=14, color="#1a1d23")),
         height=height, margin=dict(t=50, b=50, l=40, r=20),
-        plot_bgcolor=CHART_BG,
+        plot_bgcolor="#ffffff",
+        paper_bgcolor="#ffffff",
+        font=dict(color="#1a1d23"),
         yaxis=dict(gridcolor="#f0f0f0"),
         xaxis=dict(tickangle=-20),
         showlegend=False,
@@ -272,27 +289,22 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-c1, c2, c3, c4, c5, c6 = st.columns(6)
 arr_per_ent = ent_accounts["ARR"].sum() / len(ent_reps) if len(ent_reps) > 0 else 0
 arr_per_mm = mm_accounts["ARR"].sum() / len(mm_reps) if len(mm_reps) > 0 else 0
 
-cards = [
-    (c1, "ent-border", "Enterprise Accounts", f"{len(ent_accounts)}", f"of {len(accounts_df)} total"),
-    (c2, "ent-border", "Enterprise Total ARR", fmt_arr(ent_accounts["ARR"].sum()), f"{len(ent_reps)} reps"),
-    (c3, "ent-border", "ARR per Ent Rep", fmt_arr(arr_per_ent), "target load"),
-    (c4, "mm-border", "Mid-Market Accounts", f"{len(mm_accounts)}", f"of {len(accounts_df)} total"),
-    (c5, "mm-border", "Mid-Market Total ARR", fmt_arr(mm_accounts["ARR"].sum()), f"{len(mm_reps)} reps"),
-    (c6, "mm-border", "ARR per MM Rep", fmt_arr(arr_per_mm), "target load"),
-]
-for col, border, label, value, sub in cards:
-    with col:
-        st.markdown(
-            f'<div class="metric-card {border}">'
-            f'<div class="label">{label}</div>'
-            f'<div class="value">{value}</div>'
-            f'<div class="sub">{sub}</div></div>',
-            unsafe_allow_html=True,
-        )
+st.markdown(
+    f'<div class="overview-row">'
+    f'<div class="overview-item"><div class="ov-label">Total Accounts</div><div class="ov-value">{len(accounts_df)}</div></div>'
+    f'<div class="overview-item"><div class="ov-label">Total ARR</div><div class="ov-value">{fmt_arr(accounts_df["ARR"].sum())}</div></div>'
+    f'<div class="overview-item" style="margin-left:16px; padding-left:16px; border-left:2px solid {ENT_MAIN};">'
+    f'<div class="ov-label">Enterprise Accounts</div><div class="ov-value">{len(ent_accounts)}</div></div>'
+    f'<div class="overview-item"><div class="ov-label">Enterprise ARR</div><div class="ov-value">{fmt_arr(ent_accounts["ARR"].sum())}</div></div>'
+    f'<div class="overview-item" style="margin-left:16px; padding-left:16px; border-left:2px solid {MM_MAIN};">'
+    f'<div class="ov-label">Mid-Market Accounts</div><div class="ov-value">{len(mm_accounts)}</div></div>'
+    f'<div class="overview-item"><div class="ov-label">Mid-Market ARR</div><div class="ov-value">{fmt_arr(mm_accounts["ARR"].sum())}</div></div>'
+    f'</div>',
+    unsafe_allow_html=True,
+)
 
 # ─── TOTAL ARR PER REP ──────────────────────────────────────────────────────
 st.markdown('<div class="section-header">Total ARR per Rep</div>', unsafe_allow_html=True)
@@ -402,8 +414,8 @@ with col_l:
     fig.update_layout(
         barmode="stack",
         title=dict(text="Enterprise Reps — Risk Breakdown", font=dict(size=14)),
-        height=320, margin=dict(t=50, b=50, l=40, r=20),
-        xaxis=dict(tickangle=-20), plot_bgcolor=CHART_BG,
+        height=360, margin=dict(t=80, b=50, l=40, r=20),
+        xaxis=dict(tickangle=-20), plot_bgcolor="#ffffff", paper_bgcolor="#ffffff", font=dict(color="#1a1d23"),
         yaxis=dict(title="# of Accounts", gridcolor="#f0f0f0"),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=11)),
     )
@@ -421,8 +433,8 @@ with col_r:
     fig.update_layout(
         barmode="stack",
         title=dict(text="Mid-Market Reps — Risk Breakdown", font=dict(size=14)),
-        height=320, margin=dict(t=50, b=50, l=40, r=20),
-        xaxis=dict(tickangle=-20), plot_bgcolor=CHART_BG,
+        height=360, margin=dict(t=80, b=50, l=40, r=20),
+        xaxis=dict(tickangle=-20), plot_bgcolor="#ffffff", paper_bgcolor="#ffffff", font=dict(color="#1a1d23"),
         yaxis=dict(title="# of Accounts", gridcolor="#f0f0f0"),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=11)),
     )
@@ -476,8 +488,8 @@ with col_l:
     fig.update_layout(
         barmode="stack",
         title=dict(text="Enterprise Reps — Seat Penetration", font=dict(size=14)),
-        height=340, margin=dict(t=50, b=50, l=40, r=20),
-        xaxis=dict(tickangle=-20), plot_bgcolor=CHART_BG,
+        height=380, margin=dict(t=80, b=50, l=40, r=20),
+        xaxis=dict(tickangle=-20), plot_bgcolor="#ffffff", paper_bgcolor="#ffffff", font=dict(color="#1a1d23"),
         yaxis=dict(title="# of Accounts", gridcolor="#f0f0f0"),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=10)),
     )
@@ -490,8 +502,8 @@ with col_r:
     fig.update_layout(
         barmode="stack",
         title=dict(text="Mid-Market Reps — Seat Penetration", font=dict(size=14)),
-        height=340, margin=dict(t=50, b=50, l=40, r=20),
-        xaxis=dict(tickangle=-20), plot_bgcolor=CHART_BG,
+        height=380, margin=dict(t=80, b=50, l=40, r=20),
+        xaxis=dict(tickangle=-20), plot_bgcolor="#ffffff", paper_bgcolor="#ffffff", font=dict(color="#1a1d23"),
         yaxis=dict(title="# of Accounts", gridcolor="#f0f0f0"),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=10)),
     )
@@ -541,7 +553,7 @@ with col_l:
         title=dict(text=f"BEFORE — Generalist (CV: {current_cv:.1f}%)", font=dict(size=13)),
         height=340, margin=dict(t=50, b=50, l=40, r=20),
         yaxis=dict(tickformat="$,.0f", gridcolor="#f0f0f0"),
-        xaxis=dict(tickangle=-25), plot_bgcolor=CHART_BG,
+        xaxis=dict(tickangle=-25), plot_bgcolor="#ffffff", paper_bgcolor="#ffffff", font=dict(color="#1a1d23"),
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -567,7 +579,7 @@ with col_r:
         title=dict(text=f"AFTER — Segmented (Ent CV: {ent_cv:.1f}% · MM CV: {mm_cv:.1f}%)", font=dict(size=13)),
         height=340, margin=dict(t=50, b=50, l=40, r=20),
         yaxis=dict(tickformat="$,.0f", gridcolor="#f0f0f0"),
-        xaxis=dict(tickangle=-25), plot_bgcolor=CHART_BG,
+        xaxis=dict(tickangle=-25), plot_bgcolor="#ffffff", paper_bgcolor="#ffffff", font=dict(color="#1a1d23"),
     )
     st.plotly_chart(fig, use_container_width=True)
 
