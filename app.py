@@ -134,17 +134,67 @@ def load_data():
 reps_df, accounts_df = load_data()
 
 # ─── ALGORITHM ───────────────────────────────────────────────────────────────
-def greedy_distribute(accounts, rep_names):
-    """LPT greedy heuristic: sort by ARR desc, assign each to lightest-loaded rep."""
+def greedy_distribute(accounts, rep_names, reps_df=None,
+                      risk_weight=False, churn_penalty=0, geo_bonus=0):
+    """
+    Enhanced LPT greedy heuristic.
+    For each unassigned account (sorted by ARR desc), calculate an effective cost
+    for each rep, then assign to the rep with the lowest adjusted total.
+
+    - risk_weight: if True, multiply ARR by risk factor (high=1.3, med=1.0, low=0.8)
+    - churn_penalty: $ added to effective cost when assigning to a DIFFERENT rep
+      than the account's current rep (incentivizes keeping existing relationships)
+    - geo_bonus: $ subtracted from effective cost when rep and account share a state
+      (incentivizes geographic alignment)
+    """
     if len(rep_names) == 0 or len(accounts) == 0:
         return pd.DataFrame()
     sorted_accts = accounts.sort_values("ARR", ascending=False).copy()
     rep_totals = {name: 0.0 for name in rep_names}
+
+    # Build rep location lookup
+    rep_locations = {}
+    if reps_df is not None and geo_bonus > 0:
+        for _, row in reps_df.iterrows():
+            rep_locations[row["Rep_Name"]] = str(row["Location"]).strip().upper()
+
     assignments = []
     for _, acct in sorted_accts.iterrows():
-        min_rep = min(rep_totals, key=rep_totals.get)
-        rep_totals[min_rep] += acct["ARR"]
-        assignments.append(min_rep)
+        # Calculate effective ARR for this account (used for load tracking)
+        arr = acct["ARR"]
+        effective_arr = arr
+        if risk_weight:
+            risk = acct.get("Risk_Score", 50)
+            if risk >= 75:
+                effective_arr = arr * 1.3
+            elif risk < 26:
+                effective_arr = arr * 0.8
+
+        # For each candidate rep, calculate the cost of assigning this account
+        best_rep = None
+        best_cost = float("inf")
+        for rep in rep_names:
+            cost = rep_totals[rep] + effective_arr
+
+            # Churn penalty: costs more to switch away from current rep
+            if churn_penalty > 0 and "Current_Rep" in acct.index:
+                current = str(acct["Current_Rep"]).strip()
+                if current != rep:
+                    cost += churn_penalty
+
+            # Geo bonus: cheaper to assign to a co-located rep
+            if geo_bonus > 0 and rep in rep_locations:
+                acct_loc = str(acct.get("Location", "")).strip().upper()
+                if acct_loc and acct_loc == rep_locations[rep]:
+                    cost -= geo_bonus
+
+            if cost < best_cost:
+                best_cost = cost
+                best_rep = rep
+
+        rep_totals[best_rep] += effective_arr
+        assignments.append(best_rep)
+
     sorted_accts["Assigned_Rep"] = assignments
     return sorted_accts
 
@@ -196,6 +246,7 @@ def std_layout(title_text, height=340):
 with st.sidebar:
     st.markdown("### 🎯 Territory Slicer")
     st.markdown("---")
+
     st.markdown("#### Employee Count Threshold")
     st.markdown(
         "<p style='font-size:12px; color:#6b7280;'>"
@@ -218,7 +269,48 @@ with st.sidebar:
     st.markdown(f"**Threshold: {threshold:,} employees**")
     st.markdown("---")
 
-    # Detect segment labels in CSV (handles "Mid Market" or "Mid-Market")
+    # Territory rules
+    st.markdown("#### Territory Rules")
+
+    use_risk = st.checkbox(
+        "Weight by risk",
+        help="High-risk accounts (75+) are treated as 1.3× their ARR in the algorithm. "
+             "Low-risk accounts (1-25) are treated as 0.8×. This spreads high-risk accounts "
+             "more evenly since they consume more rep capacity.",
+    )
+
+    use_churn = st.checkbox(
+        "Prefer keeping current rep",
+        help="Adds a penalty when reassigning an account to a different rep than who manages "
+             "it today. Higher penalty = stickier assignments. Set to $0 to disable.",
+    )
+    churn_penalty = 0
+    if use_churn:
+        churn_penalty = st.number_input(
+            "Churn penalty ($ equivalent)",
+            min_value=0, max_value=500_000, value=50_000, step=10_000,
+            help="Dollar amount added to the effective cost of assigning an account to a rep "
+                 "other than its current one. A $50K penalty means the algorithm will only "
+                 "reassign if the ARR balance improvement exceeds $50K.",
+        )
+
+    use_geo = st.checkbox(
+        "Prefer location alignment",
+        help="Gives a bonus when a rep and account are in the same state. "
+             "Higher bonus = stronger geographic preference.",
+    )
+    geo_bonus = 0
+    if use_geo:
+        geo_bonus = st.number_input(
+            "Location bonus ($ equivalent)",
+            min_value=0, max_value=500_000, value=30_000, step=10_000,
+            help="Dollar amount subtracted from the effective cost when rep and account "
+                 "share a state. Makes the algorithm prefer co-located assignments.",
+        )
+
+    st.markdown("---")
+
+    # Detect segment labels
     segment_values = reps_df["Segment"].unique().tolist()
     ent_label = [s for s in segment_values if "ent" in s.lower()][0]
     mm_label = [s for s in segment_values if "mid" in s.lower()][0]
@@ -233,8 +325,12 @@ with st.sidebar:
 ent_accounts = accounts_df[accounts_df["Num_Employees"] >= threshold].copy()
 mm_accounts = accounts_df[accounts_df["Num_Employees"] < threshold].copy()
 
-ent_assigned = greedy_distribute(ent_accounts, ent_reps)
-mm_assigned = greedy_distribute(mm_accounts, mm_reps)
+ent_assigned = greedy_distribute(ent_accounts, ent_reps, reps_df=reps_df,
+                                  risk_weight=use_risk, churn_penalty=churn_penalty,
+                                  geo_bonus=geo_bonus)
+mm_assigned = greedy_distribute(mm_accounts, mm_reps, reps_df=reps_df,
+                                risk_weight=use_risk, churn_penalty=churn_penalty,
+                                geo_bonus=geo_bonus)
 
 def rep_summary(assigned_df, rep_names):
     rows = []
@@ -385,11 +481,11 @@ with col_l:
                          y=ent_summary["High Risk (75+)"], marker_color="#e74c3c"))
     fig.update_layout(
         barmode="stack",
-        title=dict(text="Enterprise Reps — Risk Breakdown", font=dict(size=14)),
+        title=dict(text="Enterprise Reps — Risk Breakdown", font=dict(size=14, color="#1a1d23")),
         height=360, margin=dict(t=80, b=50, l=40, r=20),
         xaxis=dict(tickangle=-20), plot_bgcolor="#ffffff", paper_bgcolor="#ffffff", font=dict(color="#1a1d23"),
         yaxis=dict(title=dict(text="# of Accounts", font=dict(color="#1a1d23")), gridcolor="#f0f0f0", tickfont=dict(color="#1a1d23")),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=11)),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=11, color="#1a1d23")),
     )
     st.plotly_chart(fig, use_container_width=True)
     st.markdown(cv_badge_html(ent_risk_cv, "Risk Concentration CV (High-Risk Accounts)"), unsafe_allow_html=True)
@@ -404,11 +500,11 @@ with col_r:
                          y=mm_summary["High Risk (75+)"], marker_color="#e74c3c"))
     fig.update_layout(
         barmode="stack",
-        title=dict(text="Mid-Market Reps — Risk Breakdown", font=dict(size=14)),
+        title=dict(text="Mid-Market Reps — Risk Breakdown", font=dict(size=14, color="#1a1d23")),
         height=360, margin=dict(t=80, b=50, l=40, r=20),
         xaxis=dict(tickangle=-20), plot_bgcolor="#ffffff", paper_bgcolor="#ffffff", font=dict(color="#1a1d23"),
         yaxis=dict(title=dict(text="# of Accounts", font=dict(color="#1a1d23")), gridcolor="#f0f0f0", tickfont=dict(color="#1a1d23")),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=11)),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=11, color="#1a1d23")),
     )
     st.plotly_chart(fig, use_container_width=True)
     st.markdown(cv_badge_html(mm_risk_cv, "Risk Concentration CV (High-Risk Accounts)"), unsafe_allow_html=True)
@@ -418,8 +514,7 @@ st.markdown('<div class="section-header">Seat Penetration by Rep</div>', unsafe_
 st.markdown(
     '<p class="section-desc">Assuming per-seat pricing, ARR ÷ Marketers approximates how many seats '
     'have been sold at each account. Lower values suggest low seat adoption — these accounts have '
-    'significant room for expansion. Higher values indicate deeper adoption with less immediate growth headroom. '
-    'Buckets: &lt;$20 = barely landed, $20–$50 = early adoption, $50–$100 = growing, $100+ = well-penetrated.</p>',
+    'significant room for expansion. Higher values indicate deeper adoption with less immediate growth headroom.</p>',
     unsafe_allow_html=True,
 )
 
@@ -459,11 +554,11 @@ with col_l:
         fig.add_trace(go.Bar(name=bucket, x=ent_pen["Rep"], y=ent_pen[bucket], marker_color=color))
     fig.update_layout(
         barmode="stack",
-        title=dict(text="Enterprise Reps — Seat Penetration", font=dict(size=14)),
+        title=dict(text="Enterprise Reps — Seat Penetration", font=dict(size=14, color="#1a1d23")),
         height=380, margin=dict(t=80, b=50, l=40, r=20),
         xaxis=dict(tickangle=-20), plot_bgcolor="#ffffff", paper_bgcolor="#ffffff", font=dict(color="#1a1d23"),
         yaxis=dict(title=dict(text="# of Accounts", font=dict(color="#1a1d23")), gridcolor="#f0f0f0", tickfont=dict(color="#1a1d23")),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=10)),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=10, color="#1a1d23")),
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -473,11 +568,11 @@ with col_r:
         fig.add_trace(go.Bar(name=bucket, x=mm_pen["Rep"], y=mm_pen[bucket], marker_color=color))
     fig.update_layout(
         barmode="stack",
-        title=dict(text="Mid-Market Reps — Seat Penetration", font=dict(size=14)),
+        title=dict(text="Mid-Market Reps — Seat Penetration", font=dict(size=14, color="#1a1d23")),
         height=380, margin=dict(t=80, b=50, l=40, r=20),
         xaxis=dict(tickangle=-20), plot_bgcolor="#ffffff", paper_bgcolor="#ffffff", font=dict(color="#1a1d23"),
         yaxis=dict(title=dict(text="# of Accounts", font=dict(color="#1a1d23")), gridcolor="#f0f0f0", tickfont=dict(color="#1a1d23")),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=10)),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=10, color="#1a1d23")),
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -518,7 +613,7 @@ with col_l:
         textposition="outside", textfont=dict(size=10),
     ))
     fig.update_layout(
-        title=dict(text=f"BEFORE — Generalist (CV: {current_cv:.1f}%)", font=dict(size=13)),
+        title=dict(text=f"BEFORE — Generalist (CV: {current_cv:.1f}%)", font=dict(size=13, color="#1a1d23")),
         height=340, margin=dict(t=50, b=50, l=40, r=20),
         yaxis=dict(tickformat="$,.0f", gridcolor="#f0f0f0", tickfont=dict(color="#1a1d23")),
         xaxis=dict(tickangle=-25, tickfont=dict(color="#1a1d23")),
@@ -537,7 +632,7 @@ with col_r:
         textposition="outside", textfont=dict(size=10),
     ))
     fig.update_layout(
-        title=dict(text=f"AFTER — Segmented (Ent CV: {ent_cv:.1f}% · MM CV: {mm_cv:.1f}%)", font=dict(size=13)),
+        title=dict(text=f"AFTER — Segmented (Ent CV: {ent_cv:.1f}% · MM CV: {mm_cv:.1f}%)", font=dict(size=13, color="#1a1d23")),
         height=340, margin=dict(t=50, b=50, l=40, r=20),
         yaxis=dict(tickformat="$,.0f", gridcolor="#f0f0f0", tickfont=dict(color="#1a1d23")),
         xaxis=dict(tickangle=-25, tickfont=dict(color="#1a1d23")),
@@ -579,6 +674,40 @@ with tab_mm:
         )
     else:
         st.info("No Mid-Market accounts at this threshold.")
+
+# ─── DOWNLOAD ────────────────────────────────────────────────────────────────
+st.markdown('<div class="section-header">Download Assignments</div>', unsafe_allow_html=True)
+st.markdown(
+    '<p class="section-desc">Export the current territory assignments as a CSV file.</p>',
+    unsafe_allow_html=True,
+)
+
+# Combine enterprise and mid-market assignments
+all_assigned = pd.DataFrame()
+if len(ent_assigned) > 0:
+    ent_dl = ent_assigned.copy()
+    ent_dl["Segment"] = "Enterprise"
+    all_assigned = pd.concat([all_assigned, ent_dl])
+if len(mm_assigned) > 0:
+    mm_dl = mm_assigned.copy()
+    mm_dl["Segment"] = "Mid-Market"
+    all_assigned = pd.concat([all_assigned, mm_dl])
+
+if len(all_assigned) > 0:
+    export_cols = ["Assigned_Rep", "Segment", "Account_Name", "Num_Employees",
+                   "ARR", "Num_Marketers", "Risk_Score", "Location"]
+    export_cols = [c for c in export_cols if c in all_assigned.columns]
+    if "Current_Rep" in all_assigned.columns:
+        export_cols.insert(2, "Current_Rep")
+    export_df = all_assigned[export_cols].sort_values(["Segment", "Assigned_Rep", "ARR"],
+                                                       ascending=[True, True, False])
+    csv_data = export_df.to_csv(index=False)
+    st.download_button(
+        label="⬇ Download assignments as CSV",
+        data=csv_data,
+        file_name=f"territory_assignments_{threshold}.csv",
+        mime="text/csv",
+    )
 
 # ─── METHODOLOGY ─────────────────────────────────────────────────────────────
 st.markdown('<div class="section-header">Methodology</div>', unsafe_allow_html=True)
@@ -623,24 +752,36 @@ meaningful imbalance. CV is scale-independent — it works whether total ARR is 
 </div>
 
 <div class="method-box" style="border-left-color: #e74c3c;">
+<h3>Territory Rules — Optional Constraints</h3>
+<p>
+<strong>Risk weighting:</strong> When enabled, high-risk accounts (75+) are treated as 1.3× their ARR
+in the algorithm, and low-risk accounts (1-25) as 0.8×. This spreads high-risk accounts more evenly
+because they "weigh" more — reflecting the reality that a high-churn account consumes more rep capacity
+than a stable one at the same dollar value.
+</p>
+<p>
+<strong>Churn penalty:</strong> Adds a dollar penalty when the algorithm considers reassigning an account
+to a different rep than who manages it today (using the Current_Rep field). A $50K penalty means the algorithm
+only reassigns if the ARR balance improvement exceeds $50K — keeping existing relationships intact unless
+the imbalance justifies the disruption.
+</p>
+<p>
+<strong>Location bonus:</strong> Subtracts a dollar bonus when a rep and account share a state. This makes
+the algorithm prefer co-located assignments — reducing travel costs and enabling in-person relationship
+building — while still allowing cross-state assignments when ARR balance requires it.
+</p>
+</div>
+
+<div class="method-box" style="border-left-color: #9b59b6;">
 <h3>Limitations &amp; Future Enhancements</h3>
 <p>
 <strong>Dynamic rep allocation:</strong> Currently, rep counts per segment are fixed. A production
 system would reallocate reps proportional to how much ARR falls in each segment as the threshold moves.
 </p>
 <p>
-<strong>Risk-weighted balancing:</strong> The Risk Exposure view surfaces imbalances, but a future
-iteration could weight high-risk accounts higher in the algorithm itself, treating them as "heavier"
-than their ARR alone suggests.
-</p>
-<p>
-<strong>Geography:</strong> Both reps and accounts have location data. Co-locating reps with accounts
-reduces travel costs and enables in-person relationship building.
-</p>
-<p>
-<strong>Existing relationships:</strong> In a real restructuring, you'd minimize disruption —
-reassigning an account mid-renewal cycle risks the deal. A production system would factor in
-renewal dates and relationship tenure.
+<strong>Multi-objective optimization:</strong> The current approach layers penalties and bonuses onto a
+single greedy pass. A more sophisticated system could use constraint optimization to jointly minimize
+ARR imbalance, risk concentration, geographic distance, and relationship disruption simultaneously.
 </p>
 </div>
 """,
@@ -648,9 +789,18 @@ renewal dates and relationship tenure.
 )
 
 # ─── ALGORITHM TRACE ─────────────────────────────────────────────────────────
+rules_active = []
+if use_risk:
+    rules_active.append("Risk weighting (high=1.3×, low=0.8×)")
+if use_churn and churn_penalty > 0:
+    rules_active.append(f"Churn penalty (${churn_penalty:,})")
+if use_geo and geo_bonus > 0:
+    rules_active.append(f"Location bonus (${geo_bonus:,})")
+rules_str = ", ".join(rules_active) if rules_active else "None (pure ARR balancing)"
+
 st.markdown(
     f"""
-<div class="method-box" style="border-left-color: #9b59b6;">
+<div class="method-box" style="border-left-color: #4fc3f7;">
 <h3>Live Algorithm Trace (threshold: {threshold:,} employees)</h3>
 <p>
 <code>
@@ -660,8 +810,9 @@ st.markdown(
    = {fmt_arr(arr_per_ent)} target per rep<br>
 3. Mid-Market pool: {fmt_arr(mm_accounts["ARR"].sum())} ÷ {len(mm_reps)} reps
    = {fmt_arr(arr_per_mm)} target per rep<br>
-4. Sort each pool by ARR descending → assign each to lightest-loaded rep<br>
-5. Result → Enterprise CV: {ent_cv:.1f}% · Mid-Market CV: {mm_cv:.1f}%
+4. Active rules: {rules_str}<br>
+5. Sort each pool by ARR descending → assign to rep with lowest adjusted cost<br>
+6. Result → Enterprise CV: {ent_cv:.1f}% · Mid-Market CV: {mm_cv:.1f}%
 </code>
 </p>
 </div>
