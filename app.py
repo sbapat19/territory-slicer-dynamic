@@ -106,13 +106,21 @@ st.markdown("""
         color: #1a1d23 !important;
     }
 
-    /* Tooltip / help icons - force black */
+    /* Tooltip / help icons */
     .stTooltipIcon, [data-testid="stTooltipIcon"] {
-        color: #1a1d23 !important;
+        color: #6b7280 !important;
     }
     .stTooltipIcon svg, [data-testid="stTooltipIcon"] svg {
-        fill: #1a1d23 !important;
-        stroke: #1a1d23 !important;
+        fill: #6b7280 !important;
+        stroke: #6b7280 !important;
+    }
+
+    /* Tab labels - ensure inactive tabs are visible */
+    .stTabs [data-baseweb="tab-list"] button {
+        color: #6b7280 !important;
+    }
+    .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] {
+        color: #1a1d23 !important;
     }
 
     /* Force all Plotly chart containers to white */
