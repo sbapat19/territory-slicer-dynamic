@@ -36,8 +36,8 @@ st.markdown("""
 
     /* Header - no box */
     .main-header {
-        padding: 0 0 16px;
-        margin-bottom: 20px;
+        padding: 0 0 8px;
+        margin-bottom: 8px;
         border-bottom: 1px solid #e2e4e9;
     }
     .main-header h1 {
@@ -49,7 +49,7 @@ st.markdown("""
     /* Section headers */
     .section-header {
         font-size: 17px; font-weight: 700; color: #1a1d23;
-        margin: 28px 0 6px; padding-bottom: 8px;
+        margin: 20px 0 6px; padding-bottom: 8px;
         border-bottom: 2px solid #e2e4e9;
     }
     .section-desc {
@@ -88,9 +88,31 @@ st.markdown("""
     section[data-testid="stSidebar"] * {
         color: #1a1d23 !important;
     }
+    section[data-testid="stSidebar"] p,
+    section[data-testid="stSidebar"] label,
+    section[data-testid="stSidebar"] span {
+        font-size: 14px !important;
+    }
     section[data-testid="stSidebar"] input {
         color: #1a1d23 !important;
         background-color: #ffffff !important;
+    }
+
+    /* Number input +/- buttons in sidebar */
+    section[data-testid="stSidebar"] button[data-testid="stNumberInputStepUp"],
+    section[data-testid="stSidebar"] button[data-testid="stNumberInputStepDown"],
+    section[data-testid="stSidebar"] [data-testid="stNumberInput"] button {
+        background-color: #e2e4e9 !important;
+        color: #1a1d23 !important;
+    }
+
+    /* Tooltip / help icons - force black */
+    .stTooltipIcon, [data-testid="stTooltipIcon"] {
+        color: #1a1d23 !important;
+    }
+    .stTooltipIcon svg, [data-testid="stTooltipIcon"] svg {
+        fill: #1a1d23 !important;
+        stroke: #1a1d23 !important;
     }
 
     /* Force all Plotly chart containers to white */
@@ -146,14 +168,14 @@ reps_df, accounts_df = load_data()
 
 # ─── ALGORITHM ───────────────────────────────────────────────────────────────
 def greedy_distribute(accounts, rep_names, reps_df=None,
-                      risk_weight=False, churn_penalty=0, geo_bonus=0):
+                      risk_weight=False, reassignment_cost=0, geo_bonus=0):
     """
     Enhanced LPT greedy heuristic.
     For each unassigned account (sorted by ARR desc), calculate an effective cost
     for each rep, then assign to the rep with the lowest adjusted total.
 
     - risk_weight: if True, multiply ARR by risk factor (high=1.3, med=1.0, low=0.8)
-    - churn_penalty: $ added to effective cost when assigning to a DIFFERENT rep
+    - reassignment_cost: $ added to effective cost when assigning to a DIFFERENT rep
       than the account's current rep (incentivizes keeping existing relationships)
     - geo_bonus: $ subtracted from effective cost when rep and account share a state
       (incentivizes geographic alignment)
@@ -187,11 +209,11 @@ def greedy_distribute(accounts, rep_names, reps_df=None,
         for rep in rep_names:
             cost = rep_totals[rep] + effective_arr
 
-            # Churn penalty: costs more to switch away from current rep
-            if churn_penalty > 0 and "Current_Rep" in acct.index:
+            # Reassignment cost: costs more to switch away from current rep
+            if reassignment_cost > 0 and "Current_Rep" in acct.index:
                 current = str(acct["Current_Rep"]).strip()
                 if current != rep:
-                    cost += churn_penalty
+                    cost += reassignment_cost
 
             # Geo bonus: cheaper to assign to a co-located rep
             if geo_bonus > 0 and rep in rep_locations:
@@ -295,10 +317,10 @@ with st.sidebar:
         help="Adds a penalty when reassigning an account to a different rep than who manages "
              "it today. Higher penalty = stickier assignments. Set to $0 to disable.",
     )
-    churn_penalty = 0
+    reassignment_cost = 0
     if use_churn:
-        churn_penalty = st.number_input(
-            "Churn penalty ($ equivalent)",
+        reassignment_cost = st.number_input(
+            "Reassignment cost ($ equivalent)",
             min_value=0, max_value=500_000, value=50_000, step=10_000,
             help="Dollar amount added to the effective cost of assigning an account to a rep "
                  "other than its current one. A $50K penalty means the algorithm will only "
@@ -337,10 +359,10 @@ ent_accounts = accounts_df[accounts_df["Num_Employees"] >= threshold].copy()
 mm_accounts = accounts_df[accounts_df["Num_Employees"] < threshold].copy()
 
 ent_assigned = greedy_distribute(ent_accounts, ent_reps, reps_df=reps_df,
-                                  risk_weight=use_risk, churn_penalty=churn_penalty,
+                                  risk_weight=use_risk, reassignment_cost=reassignment_cost,
                                   geo_bonus=geo_bonus)
 mm_assigned = greedy_distribute(mm_accounts, mm_reps, reps_df=reps_df,
-                                risk_weight=use_risk, churn_penalty=churn_penalty,
+                                risk_weight=use_risk, reassignment_cost=reassignment_cost,
                                 geo_bonus=geo_bonus)
 
 def rep_summary(assigned_df, rep_names):
@@ -378,13 +400,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ─── SEGMENT OVERVIEW ────────────────────────────────────────────────────────
-st.markdown('<div class="section-header">Segment Overview</div>', unsafe_allow_html=True)
-st.markdown(
-    '<p class="section-desc">How accounts and ARR split at the current threshold. '
-    'Enterprise reps handle fewer, larger accounts; Mid-Market reps handle more, smaller ones.</p>',
-    unsafe_allow_html=True,
-)
+# ─── OVERVIEW ────────────────────────────────────────────────────────────────
+st.markdown('<div class="section-header">Overview</div>', unsafe_allow_html=True)
 
 arr_per_ent = ent_accounts["ARR"].sum() / len(ent_reps) if len(ent_reps) > 0 else 0
 arr_per_mm = mm_accounts["ARR"].sum() / len(mm_reps) if len(mm_reps) > 0 else 0
@@ -422,7 +439,7 @@ with col_l:
         textposition="outside", textfont=dict(size=11, color="#1a1d23"),
     ))
     fig.update_layout(**std_layout("Enterprise Reps — Total ARR"))
-    fig.update_yaxes(tickformat="$,.0f")
+    fig.update_yaxes(tickformat="$,.0f", tickfont=dict(color="#1a1d23"))
     st.plotly_chart(fig, use_container_width=True)
     st.markdown(cv_badge_html(ent_cv), unsafe_allow_html=True)
 
@@ -435,7 +452,7 @@ with col_r:
         textposition="outside", textfont=dict(size=11, color="#1a1d23"),
     ))
     fig.update_layout(**std_layout("Mid-Market Reps — Total ARR"))
-    fig.update_yaxes(tickformat="$,.0f")
+    fig.update_yaxes(tickformat="$,.0f", tickfont=dict(color="#1a1d23"))
     st.plotly_chart(fig, use_container_width=True)
     st.markdown(cv_badge_html(mm_cv), unsafe_allow_html=True)
 
@@ -457,7 +474,7 @@ with col_l:
         text=ent_summary["Accounts"], textposition="outside", textfont=dict(size=12, color="#1a1d23"),
     ))
     fig.update_layout(**std_layout("Enterprise Reps — Account Count"))
-    fig.update_yaxes(title="# of Accounts")
+    fig.update_yaxes(title=dict(text="# of Accounts", font=dict(color="#1a1d23")), tickfont=dict(color="#1a1d23"))
     st.plotly_chart(fig, use_container_width=True)
 
 with col_r:
@@ -468,7 +485,7 @@ with col_r:
         text=mm_summary["Accounts"], textposition="outside", textfont=dict(size=12, color="#1a1d23"),
     ))
     fig.update_layout(**std_layout("Mid-Market Reps — Account Count"))
-    fig.update_yaxes(title="# of Accounts")
+    fig.update_yaxes(title=dict(text="# of Accounts", font=dict(color="#1a1d23")), tickfont=dict(color="#1a1d23"))
     st.plotly_chart(fig, use_container_width=True)
 
 # ─── RISK EXPOSURE ───────────────────────────────────────────────────────────
@@ -494,7 +511,7 @@ with col_l:
         barmode="stack",
         title=dict(text="Enterprise Reps — Risk Breakdown", font=dict(size=14, color="#1a1d23")),
         height=360, margin=dict(t=80, b=50, l=40, r=20),
-        xaxis=dict(tickangle=-20), plot_bgcolor="#ffffff", paper_bgcolor="#ffffff", font=dict(color="#1a1d23"),
+        xaxis=dict(tickangle=-20, tickfont=dict(color="#1a1d23")), plot_bgcolor="#ffffff", paper_bgcolor="#ffffff", font=dict(color="#1a1d23"),
         yaxis=dict(title=dict(text="# of Accounts", font=dict(color="#1a1d23")), gridcolor="#f0f0f0", tickfont=dict(color="#1a1d23")),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=11, color="#1a1d23")),
     )
@@ -513,7 +530,7 @@ with col_r:
         barmode="stack",
         title=dict(text="Mid-Market Reps — Risk Breakdown", font=dict(size=14, color="#1a1d23")),
         height=360, margin=dict(t=80, b=50, l=40, r=20),
-        xaxis=dict(tickangle=-20), plot_bgcolor="#ffffff", paper_bgcolor="#ffffff", font=dict(color="#1a1d23"),
+        xaxis=dict(tickangle=-20, tickfont=dict(color="#1a1d23")), plot_bgcolor="#ffffff", paper_bgcolor="#ffffff", font=dict(color="#1a1d23"),
         yaxis=dict(title=dict(text="# of Accounts", font=dict(color="#1a1d23")), gridcolor="#f0f0f0", tickfont=dict(color="#1a1d23")),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=11, color="#1a1d23")),
     )
@@ -566,8 +583,8 @@ with col_l:
     fig.update_layout(
         barmode="stack",
         title=dict(text="Enterprise Reps — Seat Penetration", font=dict(size=14, color="#1a1d23")),
-        height=380, margin=dict(t=80, b=50, l=40, r=20),
-        xaxis=dict(tickangle=-20), plot_bgcolor="#ffffff", paper_bgcolor="#ffffff", font=dict(color="#1a1d23"),
+        height=440, margin=dict(t=100, b=60, l=40, r=20),
+        xaxis=dict(tickangle=-20, tickfont=dict(color="#1a1d23")), plot_bgcolor="#ffffff", paper_bgcolor="#ffffff", font=dict(color="#1a1d23"),
         yaxis=dict(title=dict(text="# of Accounts", font=dict(color="#1a1d23")), gridcolor="#f0f0f0", tickfont=dict(color="#1a1d23")),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=10, color="#1a1d23")),
     )
@@ -580,8 +597,8 @@ with col_r:
     fig.update_layout(
         barmode="stack",
         title=dict(text="Mid-Market Reps — Seat Penetration", font=dict(size=14, color="#1a1d23")),
-        height=380, margin=dict(t=80, b=50, l=40, r=20),
-        xaxis=dict(tickangle=-20), plot_bgcolor="#ffffff", paper_bgcolor="#ffffff", font=dict(color="#1a1d23"),
+        height=440, margin=dict(t=100, b=60, l=40, r=20),
+        xaxis=dict(tickangle=-20, tickfont=dict(color="#1a1d23")), plot_bgcolor="#ffffff", paper_bgcolor="#ffffff", font=dict(color="#1a1d23"),
         yaxis=dict(title=dict(text="# of Accounts", font=dict(color="#1a1d23")), gridcolor="#f0f0f0", tickfont=dict(color="#1a1d23")),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=10, color="#1a1d23")),
     )
@@ -594,8 +611,7 @@ st.markdown(
 )
 st.markdown(
     '<p class="section-desc">Today, all 10 reps cover all account sizes with no specialization. '
-    'The segmented model assigns Enterprise reps to large accounts and Mid-Market reps to smaller ones — '
-    'each rep develops the right skills and motions for their segment, and workload is balanced within each tier.</p>',
+    'The segmented model lets reps develop the right skills for their segment while balancing ARR evenly across reps within each tier.</p>',
     unsafe_allow_html=True,
 )
 
@@ -625,8 +641,9 @@ with col_l:
     ))
     fig.update_layout(
         title=dict(text=f"BEFORE — Generalist (CV: {current_cv:.1f}%)", font=dict(size=13, color="#1a1d23")),
-        height=340, margin=dict(t=50, b=50, l=40, r=20),
-        yaxis=dict(tickformat="$,.0f", gridcolor="#f0f0f0", tickfont=dict(color="#1a1d23")),
+        height=340, margin=dict(t=50, b=50, l=50, r=20),
+        yaxis=dict(title=dict(text="Total ARR per Rep", font=dict(color="#1a1d23")),
+                   tickformat="$,.0f", gridcolor="#f0f0f0", tickfont=dict(color="#1a1d23")),
         xaxis=dict(tickangle=-25, tickfont=dict(color="#1a1d23")),
         plot_bgcolor="#ffffff", paper_bgcolor="#ffffff", font=dict(color="#1a1d23"),
     )
@@ -644,8 +661,9 @@ with col_r:
     ))
     fig.update_layout(
         title=dict(text=f"AFTER — Segmented (Ent CV: {ent_cv:.1f}% · MM CV: {mm_cv:.1f}%)", font=dict(size=13, color="#1a1d23")),
-        height=340, margin=dict(t=50, b=50, l=40, r=20),
-        yaxis=dict(tickformat="$,.0f", gridcolor="#f0f0f0", tickfont=dict(color="#1a1d23")),
+        height=340, margin=dict(t=50, b=50, l=50, r=20),
+        yaxis=dict(title=dict(text="Total ARR per Rep", font=dict(color="#1a1d23")),
+                   tickformat="$,.0f", gridcolor="#f0f0f0", tickfont=dict(color="#1a1d23")),
         xaxis=dict(tickangle=-25, tickfont=dict(color="#1a1d23")),
         plot_bgcolor="#ffffff", paper_bgcolor="#ffffff", font=dict(color="#1a1d23"),
     )
@@ -767,11 +785,11 @@ meaningful imbalance. CV is scale-independent — it works whether total ARR is 
 <p>
 <strong>Risk weighting:</strong> When enabled, high-risk accounts (75+) are treated as 1.3× their ARR
 in the algorithm, and low-risk accounts (1-25) as 0.8×. This spreads high-risk accounts more evenly
-because they "weigh" more — reflecting the reality that a high-churn account consumes more rep capacity
+because they "weigh" more — reflecting the reality that a high-risk account consumes more rep capacity
 than a stable one at the same dollar value.
 </p>
 <p>
-<strong>Churn penalty:</strong> Adds a dollar penalty when the algorithm considers reassigning an account
+<strong>Reassignment cost:</strong> Adds a dollar penalty when the algorithm considers reassigning an account
 to a different rep than who manages it today (using the Current_Rep field). A $50K penalty means the algorithm
 only reassigns if the ARR balance improvement exceeds $50K — keeping existing relationships intact unless
 the imbalance justifies the disruption.
@@ -803,8 +821,8 @@ ARR imbalance, risk concentration, geographic distance, and relationship disrupt
 rules_active = []
 if use_risk:
     rules_active.append("Risk weighting (high=1.3×, low=0.8×)")
-if use_churn and churn_penalty > 0:
-    rules_active.append(f"Churn penalty (${churn_penalty:,})")
+if use_churn and reassignment_cost > 0:
+    rules_active.append(f"Reassignment cost (${reassignment_cost:,})")
 if use_geo and geo_bonus > 0:
     rules_active.append(f"Location bonus (${geo_bonus:,})")
 rules_str = ", ".join(rules_active) if rules_active else "None (pure ARR balancing)"
