@@ -85,17 +85,28 @@ st.markdown("""
     section[data-testid="stSidebar"] > div {
         padding: 0 1.2rem;
     }
-    section[data-testid="stSidebar"] .stMarkdown p,
-    section[data-testid="stSidebar"] .stMarkdown li,
-    section[data-testid="stSidebar"] .stMarkdown h1,
-    section[data-testid="stSidebar"] .stMarkdown h2,
-    section[data-testid="stSidebar"] .stMarkdown h3 {
+    section[data-testid="stSidebar"] * {
         color: #1a1d23 !important;
+    }
+    section[data-testid="stSidebar"] input {
+        color: #1a1d23 !important;
+        background-color: #ffffff !important;
     }
 
     /* Force all Plotly chart containers to white */
     .stPlotlyChart, .js-plotly-plot, .plot-container {
         background-color: #ffffff !important;
+    }
+
+    /* Download button */
+    .stDownloadButton > button {
+        background-color: #f0f1f3 !important;
+        color: #1a1d23 !important;
+        border: 1px solid #d1d5db !important;
+    }
+    .stDownloadButton > button:hover {
+        background-color: #e2e4e9 !important;
+        color: #1a1d23 !important;
     }
 
     /* Methodology boxes */
@@ -408,7 +419,7 @@ with col_l:
         x=ent_summary["Rep"], y=ent_summary["Total ARR"],
         marker_color=ENT_COLORS * 2,
         text=[fmt_arr(v) for v in ent_summary["Total ARR"]],
-        textposition="outside", textfont=dict(size=11),
+        textposition="outside", textfont=dict(size=11, color="#1a1d23"),
     ))
     fig.update_layout(**std_layout("Enterprise Reps — Total ARR"))
     fig.update_yaxes(tickformat="$,.0f")
@@ -421,7 +432,7 @@ with col_r:
         x=mm_summary["Rep"], y=mm_summary["Total ARR"],
         marker_color=MM_COLORS,
         text=[fmt_arr(v) for v in mm_summary["Total ARR"]],
-        textposition="outside", textfont=dict(size=11),
+        textposition="outside", textfont=dict(size=11, color="#1a1d23"),
     ))
     fig.update_layout(**std_layout("Mid-Market Reps — Total ARR"))
     fig.update_yaxes(tickformat="$,.0f")
@@ -443,7 +454,7 @@ with col_l:
     fig.add_trace(go.Bar(
         x=ent_summary["Rep"], y=ent_summary["Accounts"],
         marker_color=ENT_COLORS * 2,
-        text=ent_summary["Accounts"], textposition="outside", textfont=dict(size=12),
+        text=ent_summary["Accounts"], textposition="outside", textfont=dict(size=12, color="#1a1d23"),
     ))
     fig.update_layout(**std_layout("Enterprise Reps — Account Count"))
     fig.update_yaxes(title="# of Accounts")
@@ -454,7 +465,7 @@ with col_r:
     fig.add_trace(go.Bar(
         x=mm_summary["Rep"], y=mm_summary["Accounts"],
         marker_color=MM_COLORS,
-        text=mm_summary["Accounts"], textposition="outside", textfont=dict(size=12),
+        text=mm_summary["Accounts"], textposition="outside", textfont=dict(size=12, color="#1a1d23"),
     ))
     fig.update_layout(**std_layout("Mid-Market Reps — Account Count"))
     fig.update_yaxes(title="# of Accounts")
@@ -610,7 +621,7 @@ with col_l:
         x=current_data["Rep"], y=current_data["ARR"],
         marker_color="#888",
         text=[fmt_arr(v) for v in current_data["ARR"]],
-        textposition="outside", textfont=dict(size=10),
+        textposition="outside", textfont=dict(size=10, color="#1a1d23"),
     ))
     fig.update_layout(
         title=dict(text=f"BEFORE — Generalist (CV: {current_cv:.1f}%)", font=dict(size=13, color="#1a1d23")),
@@ -629,7 +640,7 @@ with col_r:
         x=all_new["Rep"], y=all_new["Total ARR"],
         marker_color=colors_list,
         text=[fmt_arr(v) for v in all_new["Total ARR"]],
-        textposition="outside", textfont=dict(size=10),
+        textposition="outside", textfont=dict(size=10, color="#1a1d23"),
     ))
     fig.update_layout(
         title=dict(text=f"AFTER — Segmented (Ent CV: {ent_cv:.1f}% · MM CV: {mm_cv:.1f}%)", font=dict(size=13, color="#1a1d23")),
